@@ -1,0 +1,46 @@
+{
+    "height": 2.14,
+    "diameter": 0.123,
+    "mass_dry": 11.925,
+    "CG_dry": 1.390,
+    "MOI_dry": [0.03751, 3.297, 3.297],
+    "Cm": [0.0, -4.0, -4.0],
+    "lug_1st": 0.385,
+    "lug_2nd": 2.056,
+    "Cd0": 0.64,
+    "Clalpha": 15.0,
+    "CP": 1.73,
+    "MOI_prop": [0.00069, 0.27037, 0.27037],
+    "mass_prop": 0.678,
+    "CG_prop": 1.175,
+    
+    "thrust_curve_csv": "ntk0211.csv",
+    "thrust_dt": 0.005,
+
+    "latitude": 34.735972,
+    "longitude": 139.420944,
+    "alt_launcher": 0.0,
+    "azimuth": 90.0,
+    "elev_angle": 75,
+    "rail_length": 5.0,
+
+    "dt": 0.01, 
+    "t_max": 1000.0,
+
+    "is_drogue": false,
+
+    "Cd_para": 1.2,
+    "S_para": 2.91,
+
+    "para_trigger": {
+        "fall_time": 1000.0,
+        "altitude": 0
+    },
+
+    "wind_model": "power",
+    "wind_parameters":{
+        "z0": 2.0,
+        "n": 6.0,
+        "wind_std": [6.0, 0.0, 0.0]
+    }
+}
