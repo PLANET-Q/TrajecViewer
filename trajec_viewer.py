@@ -16,6 +16,7 @@ import numpy as np
 import quaternion
 import pandas as pd
 import json
+import os
 
 
 class MyUi(QMainWindow):
@@ -59,14 +60,23 @@ class RocketMesh:
         self.CG_pos = np.array([CG_pos, 0.0, 0.0])
 
         v, f, n, t = vispy.io.read_mesh(filename)
-        self.vertices = -np.array(v)/1000.0 # XXX: スケーリングと初期角度調整
+        # self.vertices = -np.array(v)/1000.0 # XXX: スケーリングと初期角度調整
+        self.vertices = np.array(v)
         self.faces = np.array(f)
         self.normals = np.array(n)
         self.texcoords = np.array(t)
         self.visual = visuals.Mesh(self.vertices, self.faces, color='red')
+        self.visual.light_dir = [-0.3, -0.3, -1.0]
+        # self.visual.ambient_color = 'gray'
 
         # self.pos = np.zeros((3))
         # self.q = np.zeros((4))
+    
+    def set_scale(self, scale):
+        '''
+        scale: scale array [sx, sy, sz]
+        '''
+        self.vertices *= scale
 
     def set_CG_pos(self, pos):
         self.CG_pos = pos
@@ -74,6 +84,7 @@ class RocketMesh:
     
     def set_vertices(self, v):
         self.visual.set_data(v, self.faces, color='red')
+        self.visual.light_dir = [-0.3, -0.3, -1.0]
 
     def move(self, pos, q): # q: float*4 array of attitude quaternion
         _v = np.copy(self.vertices) + self.CG_pos
@@ -87,6 +98,8 @@ class RocketMesh:
         # self.pos = np.copy(pos)
         # self.q = np.copy(q)
         self.visual.set_data(_v, self.faces, color='red')
+        self.visual.light_dir = [-0.3, -0.3, -1.0]
+        # self.visual.ambient_color = 'gray'
 
 
 class UIHandler:
@@ -165,30 +178,46 @@ class UIHandler:
         self.ui.load_param_title.setText(filename)
         self.param_file = filename
         return filename
-    
+
     def setup_rendering(self):
         # パラメータ，飛翔履歴，3Dモデルを読み込んで描画設定を行う
-        
+
         try:
-            self.rocket_model = RocketMesh(self.obj_file)
+            if self.obj_file != '':
+                self.rocket_model = RocketMesh(self.obj_file)
+            else:
+                # デフォルトモデルを読み込み
+                this_file_path = os.path.dirname(os.path.abspath(__file__))
+                std_model_path = os.path.join(this_file_path, 'samples/std_scale.obj')
+                print(' obj file:', std_model_path)
+                # self.obj_file = std_model_path
+                self.rocket_model = RocketMesh(std_model_path)
         except FileNotFoundError:
-            print(self.obj_file+' was not found.')
-            self.ui.load_obj_title.setText('ロケット3Dモデル(obj)')
+            print('obj file was not found.')
+            self.ui.load_obj_title.setText('独自ロケットモデル (obj)')
             return
-        
+
         try:
-            df = pd.read_csv(self.trajec_file)
+            if self.trajec_file != '':
+                df = pd.read_csv(self.trajec_file)
+            else:
+                print('Trajectory file is not specified.')
+                return
         except FileNotFoundError:
-            print(self.trajec_file+' was not found.')
+            print('Trajectory file: '+self.trajec_file+' was not found.')
             self.ui.load_trajec_title.setText('飛翔履歴ファイル(csv)')
             return
         
         try:
-            with open(self.param_file) as f:
-                self.param = json.load(f)
+            if self.param_file != '':
+                with open(self.param_file) as f:
+                    self.param = json.load(f)
+            else:
+                print('Parameter file is not specified.')
+                return
         except FileNotFoundError:
-            print(self.trajec_file+' was not found.')
-            self.ui.load_trajec_title.setText('飛翔履歴ファイル(csv)')
+            print('Parameter file: '+self.param_file+' was not found.')
+            self.ui.load_trajec_title.setText('パラメータファイル(json)')
             return
         
         self.trajec_df = df
@@ -207,17 +236,22 @@ class UIHandler:
 
         # CG値分モデルを移動
         self.rocket_model.set_CG_pos(np.array([self.param['CG_dry'], 0.0, 0.0]))
-        
+
+        # デフォルトのモデルを読み込む場合，モデルをスケーリング
+        if self.obj_file == '':
+            scale_vec = np.array([self.param['height'], self.param['diameter'], self.param['diameter']])
+            self.rocket_model.set_scale(scale_vec)
+
         # ui内容アップデート
         self.ui.t_slider.setMaximum(int(t[-1]/self._slider_dt))
         self.rocket_model.move(self.r(0.0), self.q(0.0))
-        self.trajec_plot_model = visuals.LinePlot(r_array, width=13.0, color='blue', marker_size=30.0)
+        self.trajec_plot_model = visuals.LinePlot(r_array, color='blue')
         self.view.add(self.rocket_model.visual)
         self.view.add(self.trajec_plot_model)
 
-        self._vertices_buffering()
+        # self._vertices_buffering()
 
-        # self._ready = True
+        self._ready = True
         return
 
 
@@ -239,8 +273,8 @@ class UIHandler:
         self.ui.v_text.setText(f"{_v[0]:.3f}, {_v[1]:.3f}, {_v[2]:.3f}")
         self.ui.w_text.setText(f"{_w[0]:.3f}, {_w[1]:.3f}, {_w[2]:.3f}")
 
-        # self.rocket_model.move(_r, _q)
-        self.rocket_model.set_vertices(self.vertices[int(t/self._slider_dt)])
+        self.rocket_model.move(_r, _q)
+        # self.rocket_model.set_vertices(self.vertices[int(t/self._slider_dt)])
 
         self.camera.center = _r
 
