@@ -47,6 +47,7 @@ class MyUi(QMainWindow):
         # status
         self.t_text = self.findChild(QLabel, 't_val')
         self.v_text = self.findChild(QLabel, 'v_val')
+        self.v_norm_text = self.findChild(QLabel, 'v_norm_val')
         self.r_text = self.findChild(QLabel, 'r_val')
         self.w_text = self.findChild(QLabel, 'w_val')
 
@@ -116,7 +117,7 @@ class UIHandler:
         self._ready = False
         self._slider_dt = 0.01
         self._playback_mode = False
-        self._playback_t = 0.0
+        self._current_t = 0.0
         self._playback_timer = QTimer(self.ui)
         self.obj_file = ''
         self.param_file = ''
@@ -131,6 +132,7 @@ class UIHandler:
         self.ui.import_btn.clicked.connect(self.setup_rendering)
         
         self.ui.start_btn.clicked.connect(self.on_start_clicked)
+        self.ui.pause_btn.clicked.connect(self.on_pause_clicked)
         self.ui.stop_btn.clicked.connect(self.on_stop_clicked)
         
         self.ui.t_slider.setMinimum(0)
@@ -249,9 +251,9 @@ class UIHandler:
         self.view.add(self.rocket_model.visual)
         self.view.add(self.trajec_plot_model)
 
-        # self._vertices_buffering()
+        self._vertices_buffering()
 
-        self._ready = True
+        # self._ready = True
         return
 
 
@@ -270,22 +272,23 @@ class UIHandler:
 
         self.ui.t_text.setText(str(t))
         self.ui.r_text.setText(f"{_r[0]:.3f}, {_r[1]:.3f}, {_r[2]:.3f}")
+        self.ui.v_norm_text.setText(f"{np.linalg.norm(_v):.4f}")
         self.ui.v_text.setText(f"{_v[0]:.3f}, {_v[1]:.3f}, {_v[2]:.3f}")
         self.ui.w_text.setText(f"{_w[0]:.3f}, {_w[1]:.3f}, {_w[2]:.3f}")
 
-        self.rocket_model.move(_r, _q)
-        # self.rocket_model.set_vertices(self.vertices[int(t/self._slider_dt)])
+        # self.rocket_model.move(_r, _q)
+        self.rocket_model.set_vertices(self.vertices[int(t/self._slider_dt)])
 
         self.camera.center = _r
 
     def _playback_update(self):
-        if self._playback_t >= self.t[-1]:
-            self._playback_t = 0.0
+        if self._current_t >= self.t[-1]:
+            self._current_t = 0.0
 
-        t = self._playback_t
-        self.update_at_t(t)
+        t = self._current_t
+        # sliderにsetValueすると value_changedが呼ばれる
         self.ui.t_slider.setValue(int(t/self._slider_dt))
-        self._playback_t += self._slider_dt
+        self._current_t += self._slider_dt
 
     def on_start_clicked(self):
         if not self.isReady():
@@ -295,12 +298,19 @@ class UIHandler:
         self._playback_timer.timeout.connect(self._playback_update)
         self._playback_timer.start(10)
     
+    def on_pause_clicked(self):
+        if not self.isReady():
+            return
+        
+        self._playback_timer.stop()
+        self._playback_mode = False
+        
     def on_stop_clicked(self):
         if not self.isReady():
             return
 
         self._playback_timer.stop()
-        self._playback_t = 0.0
+        self._current_t = 0.0
         self.update_at_t(0)
         self.ui.t_slider.setValue(0)
         self._playback_mode = False
@@ -309,8 +319,8 @@ class UIHandler:
         if not self.isReady():
             return
 
-        t = value*self._slider_dt
-        self.update_at_t(t)
+        self._current_t = value*self._slider_dt
+        self.update_at_t(self._current_t)
     
     def _vertices_buffering(self):
         t_array = np.arange(0.0, self.t[-1], self._slider_dt)
@@ -354,7 +364,6 @@ if __name__ == '__main__':
     camera = scene.TurntableCamera(up='+z')
 
     myui = MyUi()
-    # myui.vispy_view.addWidget(canvas.native)
 
     handler = UIHandler(myui, canvas, camera)
 
