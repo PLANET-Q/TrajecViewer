@@ -42,6 +42,8 @@ class MyUi(QMainWindow):
         self.load_trajec_btn = self.findChild(QPushButton, 'trajec_load_button')
         self.load_obj_title = self.findChild(QLabel, 'model_load_title')
         self.load_obj_btn = self.findChild(QPushButton, 'model_load_button')
+        self.load_evlog_title = self.findChild(QLabel, 'eventlog_load_title')
+        self.load_evlog_btn = self.findChild(QPushButton, 'eventlog_load_button')
         self.import_btn = self.findChild(QPushButton, 'load_button')
 
         # status
@@ -123,12 +125,16 @@ class UIHandler:
         self.param_file = ''
         self.trajec_file = ''
 
+        self.evlog_file = ''
+        self.evlog = {}
+
         # self.rocket_model = RocketMesh('bianca.obj')
 
         # set events
         self.ui.load_trajec_btn.clicked.connect(self.load_trajectory)
         self.ui.load_param_btn.clicked.connect(self.load_params)
         self.ui.load_obj_btn.clicked.connect(self.load_obj)
+        self.ui.load_evlog_btn.clicked.connect(self.load_eventlog)
         self.ui.import_btn.clicked.connect(self.setup_rendering)
         
         self.ui.start_btn.clicked.connect(self.on_start_clicked)
@@ -141,10 +147,15 @@ class UIHandler:
         self.ui.t_slider.valueChanged[int].connect(self.on_slider_changed)
 
         self.trajec_plot_model = visuals.LinePlot()
+        # event markers
+        self.trajec_event_markers = visuals.Markers()
+        self.trajec_event_texts = visuals.Text()
 
         view = self.canvas.central_widget.add_view()
         view.add(GridLines())
         view.add(XYZAxis())
+        # view.add(self.trajec_event_markers)
+        # view.add(self.trajec_plot_model)
         view.bgcolor = 'gray'
         view.camera = self.camera
         view.padding = 12
@@ -180,10 +191,37 @@ class UIHandler:
         self.ui.load_param_title.setText(filename)
         self.param_file = filename
         return filename
+    
+    def load_eventlog(self):
+        filename = self.ui.show_file_dialog('イベントログファイルを選択', './', '*.json')
+        if filename == '':
+            self.ui.load_evlog_title.setText('パラメータファイル(json)')
+            return
+        
+        self.ui.load_evlog_title.setText(filename)
+        self.evlog_file = filename
+        return filename
+
+    def plot_events(self):
+        n_events = len(self.evlog)
+        event_points = np.zeros((n_events, 3))
+        event_texts = []
+        i = 0
+        for name, value in self.evlog.items():
+            if not 't' in value:
+                continue
+            t = value['t']
+            r = self.r(t)
+            event_points[i] = r
+            event_texts.append(name)
+            i += 1
+        
+        self.trajec_event_markers.set_data(event_points, face_color='white', edge_color='yellow', size=10.0)
+        text_points = event_points + np.array([0.5, 0, 0])
+        self.trajec_event_texts = visuals.Text(event_texts, color='yellow', font_size=128, pos=text_points)
 
     def setup_rendering(self):
         # パラメータ，飛翔履歴，3Dモデルを読み込んで描画設定を行う
-
         try:
             if self.obj_file != '':
                 self.rocket_model = RocketMesh(self.obj_file)
@@ -209,7 +247,7 @@ class UIHandler:
             print('Trajectory file: '+self.trajec_file+' was not found.')
             self.ui.load_trajec_title.setText('飛翔履歴ファイル(csv)')
             return
-        
+
         try:
             if self.param_file != '':
                 with open(self.param_file) as f:
@@ -221,7 +259,19 @@ class UIHandler:
             print('Parameter file: '+self.param_file+' was not found.')
             self.ui.load_trajec_title.setText('パラメータファイル(json)')
             return
-        
+
+        try:
+            if self.evlog_file != '':
+                with open(self.evlog_file) as f:
+                    self.evlog = json.load(f)
+            else:
+                print('Eventlog file is not specified.')
+                return
+        except FileNotFoundError:
+            print('Eventlog file: '+self.evlog_file+' was not found.')
+            self.ui.load_evlog_title.setText('イベントログ・ファイル(json)')
+            return
+
         self.trajec_df = df
         # 弾道履歴データを展開
         t = np.array(df['t'])
@@ -231,10 +281,10 @@ class UIHandler:
         w_array = np.array(df.loc[:, 'wx':'wz'])
         q_array = np.array(df.loc[:, 'qx':'qw'])
         # 補間
-        self.r = interp1d(t, r_array, kind='linear', axis=0)
-        self.v = interp1d(t, v_array, kind='linear', axis=0)
-        self.w = interp1d(t, w_array, kind='linear', axis=0)
-        self.q = interp1d(t, q_array, kind='linear', axis=0)
+        self.r = interp1d(t, r_array, kind='linear', axis=0, fill_value='extrapolate')
+        self.v = interp1d(t, v_array, kind='linear', axis=0, fill_value='extrapolate')
+        self.w = interp1d(t, w_array, kind='linear', axis=0, fill_value='extrapolate')
+        self.q = interp1d(t, q_array, kind='linear', axis=0, fill_value='extrapolate')
 
         # CG値分モデルを移動
         self.rocket_model.set_CG_pos(np.array([self.param['CG_dry'], 0.0, 0.0]))
@@ -248,14 +298,18 @@ class UIHandler:
         self.ui.t_slider.setMaximum(int(t[-1]/self._slider_dt))
         self.rocket_model.move(self.r(0.0), self.q(0.0))
         self.trajec_plot_model = visuals.LinePlot(r_array, color='blue')
+        
+        self.plot_events()
+
         self.view.add(self.rocket_model.visual)
         self.view.add(self.trajec_plot_model)
+        self.view.add(self.trajec_event_markers)
+        self.view.add(self.trajec_event_texts)
 
         self._vertices_buffering()
 
         # self._ready = True
         return
-
 
     def isReady(self):
         # return self._param_loaded and self._trajec_loaded
