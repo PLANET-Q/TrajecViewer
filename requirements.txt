@@ -1,0 +1,14 @@
+# ======================================
+# Requirements for Trajec_viewer.py
+# author: yamamotsu
+# last update: 2020/03/23
+# ======================================
+
+pyqt5
+vispy
+
+scipy
+numpy
+numba # for fast quaternion calc.
+numpy-quaternion
+pandas
