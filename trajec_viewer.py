@@ -18,6 +18,8 @@ import pandas as pd
 import json
 import os
 
+THIS_FILE_DIR = os.path.dirname(os.path.abspath(__file__))
+CONFIG_FILE = os.path.join(THIS_FILE_DIR, 'config.json')
 
 class MyUi(QMainWindow):
     def __init__(self):
@@ -62,19 +64,19 @@ class RocketMesh:
     def __init__(self, filename, CG_pos=0.0):
         self.CG_pos = np.array([CG_pos, 0.0, 0.0])
 
-        v, f, n, t = vispy.io.read_mesh(filename)
-        # self.vertices = -np.array(v)/1000.0 # XXX: スケーリングと初期角度調整
-        self.vertices = np.array(v)
-        self.faces = np.array(f)
-        self.normals = np.array(n)
-        self.texcoords = np.array(t)
+        self.vertices, self.faces, self.normals, self.texcoords = self._load_obj(filename)
+
         self.visual = visuals.Mesh(self.vertices, self.faces, color='red')
         self.visual.light_dir = [-0.3, -0.3, -1.0]
         # self.visual.ambient_color = 'gray'
 
         # self.pos = np.zeros((3))
         # self.q = np.zeros((4))
-    
+
+    def load_model(self, filename):
+        self.vertices, self.faces, self.normals, self.texcoords = self._load_obj(filename)
+        self.visual.set_data(self.vertices, self.faces, color='red')
+
     def set_scale(self, scale):
         '''
         scale: scale array [sx, sy, sz]
@@ -89,13 +91,14 @@ class RocketMesh:
         self.visual.set_data(v, self.faces, color='red')
         self.visual.light_dir = [-0.3, -0.3, -1.0]
 
-    def move(self, pos, q): # q: float*4 array of attitude quaternion
+    def move(self, pos, q=None): # q: float*4 array of attitude quaternion
         _v = np.copy(self.vertices) + self.CG_pos
         
-        _q = quaternion.as_quat_array(q)
-        attitude = quaternion.as_rotation_matrix(_q)
+        if q is not None:
+            _q = quaternion.as_quat_array(q)
+            attitude = quaternion.as_rotation_matrix(_q)
 
-        _v = np.dot(attitude, _v.T).T
+            _v = np.dot(attitude, _v.T).T
         _v += pos
 
         # self.pos = np.copy(pos)
@@ -104,16 +107,19 @@ class RocketMesh:
         self.visual.light_dir = [-0.3, -0.3, -1.0]
         # self.visual.ambient_color = 'gray'
 
+    def _load_obj(self, filename):
+        v, f, n, t = vispy.io.read_mesh(filename)
+        return np.array(v), np.array(f), np.array(n), np.array(t)
+
 
 class UIHandler:
-    def __init__(self, ui:MyUi, canvas, camera):
+    def __init__(self, ui:MyUi, canvas, camera, use_pre_rendering=True):
         self.ui = ui
         self.canvas = canvas
         self.camera = camera
         self.ui.vispy_view.addWidget(canvas.native)
 
-        # self._trajec_loaded = False
-        # self._param_loaded = False
+        self.use_pre_rendering = use_pre_rendering
 
         # member variables initialization
         self._ready = False
@@ -129,6 +135,12 @@ class UIHandler:
         self.evlog = {}
 
         # self.rocket_model = RocketMesh('bianca.obj')
+        # デフォルトモデルを読み込み
+        std_model_path = os.path.join(THIS_FILE_DIR, 'samples/std_scale.obj')
+        self.rocket_model = RocketMesh(std_model_path)
+        self.rocket_model.set_scale(np.array([1.0, 0.1, 0.1]))
+        self.rocket_model.set_CG_pos(np.array([0.5, 0, 0]))
+        self.rocket_model.move(np.array([0.0, 0.0, 0.0]))
 
         # set events
         self.ui.load_trajec_btn.clicked.connect(self.load_trajectory)
@@ -146,23 +158,24 @@ class UIHandler:
         self.ui.t_slider.setSingleStep(1)
         self.ui.t_slider.valueChanged[int].connect(self.on_slider_changed)
 
-        self.trajec_plot_model = visuals.LinePlot()
+        self.trajec_plot_model = None
         # event markers
         self.trajec_event_markers = visuals.Markers()
-        self.trajec_event_texts = visuals.Text()
+        self.trajec_event_texts = None
 
         view = self.canvas.central_widget.add_view()
         view.add(GridLines())
         view.add(XYZAxis())
         # view.add(self.trajec_event_markers)
         # view.add(self.trajec_plot_model)
+        view.add(self.rocket_model.visual)
         view.bgcolor = 'gray'
         view.camera = self.camera
         view.padding = 12
         self.view = view
         self.canvas.show()
         self.ui.show()
-    
+
     def load_obj(self):
         filename = self.ui.show_file_dialog('ロケット3Dファイルを選択', './', '*.obj')
         if filename == '':
@@ -177,7 +190,7 @@ class UIHandler:
         if filename == '':
             self.ui.load_trajec_title.setText('飛翔履歴ファイル(csv)')
             return
-        
+
         self.ui.load_trajec_title.setText(filename)
         self.trajec_file = filename
         return filename
@@ -217,21 +230,25 @@ class UIHandler:
             i += 1
         
         self.trajec_event_markers.set_data(event_points, face_color='white', edge_color='yellow', size=10.0)
+
         text_points = event_points + np.array([0.5, 0, 0])
+        # if self.trajec_event_texts is not None:
+        #     self.trajec_event_texts = 
         self.trajec_event_texts = visuals.Text(event_texts, color='yellow', font_size=128, pos=text_points)
+        self.view.add(self.trajec_event_texts)
 
     def setup_rendering(self):
         # パラメータ，飛翔履歴，3Dモデルを読み込んで描画設定を行う
         try:
             if self.obj_file != '':
-                self.rocket_model = RocketMesh(self.obj_file)
+                # self.rocket_model = RocketMesh(self.obj_file)
+                self.rocket_model.load_model(self.obj_file)
             else:
                 # デフォルトモデルを読み込み
-                this_file_path = os.path.dirname(os.path.abspath(__file__))
-                std_model_path = os.path.join(this_file_path, 'samples/std_scale.obj')
+                std_model_path = os.path.join(THIS_FILE_DIR, 'samples/std_scale.obj')
                 print(' obj file:', std_model_path)
                 # self.obj_file = std_model_path
-                self.rocket_model = RocketMesh(std_model_path)
+                self.rocket_model.load_model(std_model_path)
         except FileNotFoundError:
             print('obj file was not found.')
             self.ui.load_obj_title.setText('独自ロケットモデル (obj)')
@@ -297,18 +314,20 @@ class UIHandler:
         # ui内容アップデート
         self.ui.t_slider.setMaximum(int(t[-1]/self._slider_dt))
         self.rocket_model.move(self.r(0.0), self.q(0.0))
+
         self.trajec_plot_model = visuals.LinePlot(r_array, color='blue')
-        
+
         self.plot_events()
 
-        self.view.add(self.rocket_model.visual)
         self.view.add(self.trajec_plot_model)
         self.view.add(self.trajec_event_markers)
         self.view.add(self.trajec_event_texts)
 
-        self._vertices_buffering()
+        if self.use_pre_rendering:
+            self._vertices_buffering()
+        else:
+            self._ready = True
 
-        # self._ready = True
         return
 
     def isReady(self):
@@ -330,8 +349,10 @@ class UIHandler:
         self.ui.v_text.setText(f"{_v[0]:.3f}, {_v[1]:.3f}, {_v[2]:.3f}")
         self.ui.w_text.setText(f"{_w[0]:.3f}, {_w[1]:.3f}, {_w[2]:.3f}")
 
-        # self.rocket_model.move(_r, _q)
-        self.rocket_model.set_vertices(self.vertices[int(t/self._slider_dt)])
+        if self.use_pre_rendering:
+            self.rocket_model.set_vertices(self.vertices[int(t/self._slider_dt)])
+        else:
+            self.rocket_model.move(_r, _q)
 
         self.camera.center = _r
 
@@ -368,7 +389,7 @@ class UIHandler:
         self.update_at_t(0)
         self.ui.t_slider.setValue(0)
         self._playback_mode = False
-    
+
     def on_slider_changed(self, value):
         if not self.isReady():
             return
@@ -409,9 +430,16 @@ class UIHandler:
         self.vertices = vertices
 
 
-
-
 if __name__ == '__main__':
+    # load config params
+    try:
+        with open(CONFIG_FILE) as f:
+            config = json.load(f)
+    except FileNotFoundError:
+        print('config file not found.')
+        config = {
+            'pre_rendering': True
+        }
 
     vispy.use('pyqt5')
     canvas = scene.SceneCanvas(keys="interactive", size=(1200, 800), show=False)
@@ -419,6 +447,6 @@ if __name__ == '__main__':
 
     myui = MyUi()
 
-    handler = UIHandler(myui, canvas, camera)
+    handler = UIHandler(myui, canvas, camera, use_pre_rendering=config['pre_rendering'])
 
     canvas.app.run()

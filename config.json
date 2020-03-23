@@ -1,0 +1,9 @@
+{
+    "pre_rendering": false,
+    "scene": {
+        "background_color": "gray",
+        "rocket_color": "red",
+        "trajectory_color": "blue",
+        "event_text_color": "yellow"
+    }
+}
